@@ -1,0 +1,29 @@
+{
+  "name": "Tepore",
+  "version": "0.1.1",
+  "slug": "tepore",
+  "description": "Local-first heating engine that controls your thermostats, TRVs and boiler with no vendor cloud in the loop",
+  "arch": ["amd64", "aarch64"],
+  "image": "ghcr.io/flevanti/tepore-{arch}",
+  "startup": "application",
+  "boot": "auto",
+  "init": false,
+  "ingress": true,
+  "ingress_port": 8099,
+  "panel_icon": "mdi:radiator",
+  "timeout": 20,
+  "backup": "hot",
+  "backup_exclude": ["store/*"],
+  "backup_pre": "/usr/bin/backup-pre.sh",
+  "backup_post": "/usr/bin/backup-post.sh",
+  "options": {
+    "log_level": "info",
+    "retention_months": 12,
+    "include_store_in_backups": false
+  },
+  "schema": {
+    "log_level": "list(debug|info|warn|error)",
+    "retention_months": "int(1,120)",
+    "include_store_in_backups": "bool"
+  }
+}
