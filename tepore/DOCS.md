@@ -10,6 +10,7 @@ This is an early release. It does not control any heating yet. It:
 - starts, opens its local database and records a heartbeat every 5 minutes;
 - reads Home Assistant's devices (thermostats, TRVs, temperature and humidity sensors, window and presence sensors)
   and follows their state; at `log_level: debug` the add-on log lists them and every change;
+- prepares its database for rooms and devices, which cannot be configured yet;
 - shows a placeholder page ("engine running") in the Home Assistant sidebar.
 
 It writes nothing to any device. Its only writes to Home Assistant are persistent notifications: one when the add-on
@@ -68,8 +69,8 @@ going back to an older version. The engine refuses to open it rather than risk d
 
 To recover, reinstall the newer version (or later): it opens the database as it is.
 
-Going back to an older version is only possible by restoring a backup of that older version taken with
-`include_store_in_backups` on. Without such a backup, the older version can only start with a fresh database.
+A version cannot be downgraded once it has updated the database. Going back to an older version is only possible by
+restoring a backup of that older version taken with `include_store_in_backups` on. Without such a backup, the older version can only start with a fresh database.
 
 ## If the add-on stops with exit code 4
 
