@@ -10,12 +10,14 @@ This is an early release. It does not control any heating yet. It:
 - starts, opens its local database and records a heartbeat every 5 minutes;
 - reads Home Assistant's devices (thermostats, TRVs, temperature and humidity sensors, window and presence sensors)
   and follows their state; at `log_level: debug` the add-on log lists them and every change;
-- prepares its database for rooms and devices, which cannot be configured yet;
-- shows a placeholder page ("engine running") in the Home Assistant sidebar.
+- keeps the links to the Home Assistant entities of bound devices up to date after every full read;
+- shows a first page in the Home Assistant sidebar: the engine's status (version, database schema, Home Assistant
+  connection) and the home's rooms and devices. In the add-on, rooms cannot be created yet: an empty home is expected.
+  To try rooms and devices now, run the engine in Docker (below).
 
-It writes nothing to any device. Its only writes to Home Assistant are persistent notifications: one when the add-on
-stops on a problem it can explain (what is wrong and what to do, at most once an hour for the same problem), and one
-when a backup's engine data could not be restored. A fixed problem's notification is cleared at the next healthy start.
+It writes nothing to any device. Its only writes to Home Assistant are persistent notifications: one when the engine
+enters safe mode on a problem it can explain (what is wrong and what you can do, at most once an hour for the same
+problem). A fixed problem's notification is cleared at the next healthy start.
 
 For this, the add-on uses Home Assistant's API through the Supervisor (`homeassistant_api`).
 
@@ -27,7 +29,7 @@ For this, the add-on uses Home Assistant's API through the Supervisor (`homeassi
 | `retention_months` | `12` | How many months of decision records to keep (1 to 120). Older records are deleted. |
 | `include_store_in_backups` | `false` | Whether Home Assistant backups include a copy of the engine's database. |
 
-An invalid option stops the add-on at startup; the add-on log says which option is wrong.
+An invalid option puts the engine in safe mode at startup; the panel and the add-on log say which option is wrong.
 
 ## Backups
 
@@ -39,9 +41,27 @@ The live database is never put in a backup: copying it while the engine writes c
   includes that snapshot, and the snapshot is deleted again once the backup is done.
 
 Restoring is automatic. When the add-on starts with no database but with a snapshot from a restored backup, it checks
-the snapshot and uses it. If the snapshot is damaged, or was written by a newer version of the add-on, the engine
-starts with a fresh database instead and keeps the rejected snapshot at `/data/backup/engine.db.rejected`, so nothing
-is lost. The add-on stays up either way.
+the snapshot and uses it. If the snapshot is damaged, was written by a newer version of the add-on, or cannot be put in
+place, the engine enters safe mode instead: the panel explains it, the snapshot stays where it is, and you choose
+between starting fresh (the snapshot is kept at `/data/backup/engine.db.rejected`) and restoring another backup.
+
+## Safe mode
+
+When the engine meets a problem it can explain at startup, it does not stop. It stays up in safe mode: it makes no
+decisions, writes nothing to any device, and the Tepore panel shows what is wrong and what you can do. The add-on log
+repeats it every 5 minutes, and Home Assistant shows a notification.
+
+| Problem | What you can do |
+|---|---|
+| An option is invalid, or the options file is unreadable | Correct it in the add-on's Configuration tab (saving rewrites the file) and restart the add-on. |
+| The database was written by a newer version | Install that version or a later one: it opens the database as it is. |
+| The database cannot be opened or read | **Start fresh** from the panel: the database files are moved aside (renamed with `.bad.` and a time), never deleted, and the engine starts with an empty database. Or restore a Home Assistant backup that includes Tepore's data (taken with `include_store_in_backups` on). |
+| A restored backup's data was rejected or could not be put in place | **Start fresh** from the panel (the backup's file is kept), or restore another backup. |
+| The check for a restored backup failed | Fix the cause named in the panel (for example a permission) and restart the add-on. |
+
+A version cannot be downgraded once it has updated the database. Going back to an older version is only possible by
+restoring a backup of that older version taken with `include_store_in_backups` on. Without such a backup, the older
+version can only start with a fresh database.
 
 ## Exit codes
 
@@ -49,50 +69,54 @@ is lost. The add-on stays up either way.
 |---|---|
 | 0 | Stopped normally |
 | 1 | Unexpected error (please report it, with the add-on log) |
-| 2 | Invalid options (see below) |
-| 3 | Database from a newer version (see below) |
-| 4 | Database problem (see below) |
+| 2 | Bad arguments, or `engine devices` with unusable options |
 | 5 | The engine could not serve its page (see below) |
 | 6 | The backup snapshot could not be written (Home Assistant reports it in the backup's log) |
 | 7 | `engine devices` could not read Home Assistant (developers only) |
-
-## If the add-on stops with exit code 2
-
-The options file could not be used: an option has a value the engine does not accept, or the file is unreadable. The
-notification and the add-on log name the option. Correct it in the add-on's Configuration tab and start the add-on. If
-the file itself is unreadable, saving the Configuration tab writes it again.
-
-## If the add-on stops with exit code 3
-
-Exit code 3 means the database was written by a newer version of the add-on than the one installed, typically after
-going back to an older version. The engine refuses to open it rather than risk damaging it.
-
-To recover, reinstall the newer version (or later): it opens the database as it is.
-
-A version cannot be downgraded once it has updated the database. Going back to an older version is only possible by
-restoring a backup of that older version taken with `include_store_in_backups` on. Without such a backup, the older version can only start with a fresh database.
-
-## If the add-on stops with exit code 4
-
-The engine could not open or read its database (the notification names the step and the error). You have two
-choices:
-
-- **Restore a Home Assistant backup** that includes Tepore's data (taken with `include_store_in_backups` on).
-- **Start fresh, keeping the old database aside.** The add-on's data lives on the Home Assistant host at
-  `/mnt/data/supervisor/addons/data/<slug>/store` (the slug is in the add-on page's address, for example
-  `abcd1234_tepore`), which needs host access (HA OS debug SSH on port 22222). With the Tepore add-on stopped, move the
-  database files aside and start the add-on again:
-
-  ```
-  cd /mnt/data/supervisor/addons/data/<slug>/store
-  mv engine.db engine.db.bad
-  mv engine.db-wal engine.db-wal.bad 2>/dev/null
-  mv engine.db-shm engine.db-shm.bad 2>/dev/null
-  ```
-
-  The engine then starts with an empty database. The `.bad` files are kept, so nothing is lost.
+| 8 | `engine call` could not connect or sign in, or the engine refused the request (Docker) |
+| 11 | `engine token reset` could not remove the token file (Docker) |
 
 ## If the add-on stops with exit code 5
 
 The engine could not serve its page: another process holds its port, or serving failed. Restart the add-on; if it
 happens again, report it with the add-on log.
+
+## Running in Docker without Home Assistant OS
+
+The same image runs on its own, next to any Home Assistant you can reach. This is how to try rooms and devices in this
+version. The Docker engine has its own database, separate from any add-on's.
+
+1. Pick the image for your machine: `ghcr.io/flevanti/tepore-amd64` or `ghcr.io/flevanti/tepore-aarch64` (Apple
+   silicon, Raspberry Pi), tagged with the version, for example `0.4.0`.
+2. Create a writable volume for `/data` and put an `options.json` in it, readable only by you (mode `0600`):
+
+   ```json
+   {"ha_url": "http://192.168.1.10:8123", "ha_token": "<long-lived access token>"}
+   ```
+
+   The token comes from Home Assistant: your profile → Security → Long-lived access tokens, for an administrator user.
+   `ha_url` must be reachable from inside the container: use an IP address when `.local` names do not resolve there.
+   The add-on's options (`log_level`, `retention_months`, `include_store_in_backups`) work here too. Do not set
+   `SUPERVISOR_TOKEN`: with it the engine behaves as the add-on and refuses every browser.
+3. Start it, publishing port 8099:
+
+   ```
+   docker run -d --name tepore -v tepore-data:/data -p 8099:8099 ghcr.io/flevanti/tepore-aarch64:0.4.0
+   ```
+
+4. Read the one-time setup code from `docker logs tepore` (the line "setup code for the first sign-in"). Open
+   `http://localhost:8099`, paste the code, and keep the token the page shows: `engine call` needs it.
+5. Configure the home with `engine call`, inside the container. The first time, the setup code can stand in for the
+   token, and the token is printed:
+
+   ```
+   docker exec -e TEPORE_API_TOKEN=<setup code> tepore engine call engine.status
+   docker exec -e TEPORE_API_TOKEN=<token> tepore engine call circuits.create '{"name":"Main","type":"radiator"}'
+   ```
+
+   Keep the token out of shell history you share.
+6. Lost the token? `docker exec tepore engine token reset`, then `docker restart tepore`, and a new setup code is in
+   the log.
+
+The engine serves plain HTTP. Before it leaves your machine, put TLS in front of it with a reverse proxy, which must pass
+the original `Host` header (for nginx, `proxy_set_header Host $host;`).
