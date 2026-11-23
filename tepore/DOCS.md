@@ -26,7 +26,7 @@ For this, the add-on uses Home Assistant's API through the Supervisor (`homeassi
 | Option | Default | Meaning |
 |---|---|---|
 | `log_level` | `info` | Minimum log level: `debug`, `info`, `warn` or `error`. |
-| `retention_months` | `12` | How many months of decision records to keep (1 to 120). Older records are deleted. |
+| `retention_months` | `12` | How many months of decision records and device readings to keep (1 to 120). Older ones are deleted. |
 | `include_store_in_backups` | `false` | Whether Home Assistant backups include a copy of the engine's database. |
 
 An invalid option puts the engine in safe mode at startup; the panel and the add-on log say which option is wrong.
@@ -38,7 +38,8 @@ The live database is never put in a backup: copying it while the engine writes c
 - **Option off (the default):** backups contain no engine data. Restoring one starts the engine with a fresh,
   empty database.
 - **Option on:** just before each backup the engine writes a consistent snapshot of its database, the backup
-  includes that snapshot, and the snapshot is deleted again once the backup is done.
+  includes that snapshot, and the snapshot is deleted again once the backup is done. The database holds the readings of
+  every device bound to a room, so backups grow with it: a few MB a day, up to 1–2 GB at 12 months.
 
 Restoring is automatic. When the add-on starts with no database but with a snapshot from a restored backup, it checks
 the snapshot and uses it. If the snapshot is damaged, was written by a newer version of the add-on, or cannot be put in
@@ -73,7 +74,7 @@ version can only start with a fresh database.
 | 5 | The engine could not serve its page (see below) |
 | 6 | The backup snapshot could not be written (Home Assistant reports it in the backup's log) |
 | 7 | `engine devices` could not read Home Assistant (developers only) |
-| 8 | `engine call` could not connect or sign in, or the engine refused the request (Docker) |
+| 8 | `engine call` or `engine timeline` could not connect or sign in, or the engine refused the request (Docker) |
 | 11 | `engine token reset` could not remove the token file (Docker) |
 
 ## If the add-on stops with exit code 5
@@ -87,7 +88,7 @@ The same image runs on its own, next to any Home Assistant you can reach. This i
 version. The Docker engine has its own database, separate from any add-on's.
 
 1. Pick the image for your machine: `ghcr.io/flevanti/tepore-amd64` or `ghcr.io/flevanti/tepore-aarch64` (Apple
-   silicon, Raspberry Pi), tagged with the version, for example `0.4.0`.
+   silicon, Raspberry Pi), tagged with the version, for example `0.5.0`.
 2. Create a writable volume for `/data` and put an `options.json` in it, readable only by you (mode `0600`):
 
    ```json
@@ -101,7 +102,7 @@ version. The Docker engine has its own database, separate from any add-on's.
 3. Start it, publishing port 8099:
 
    ```
-   docker run -d --name tepore -v tepore-data:/data -p 8099:8099 ghcr.io/flevanti/tepore-aarch64:0.4.0
+   docker run -d --name tepore -v tepore-data:/data -p 8099:8099 ghcr.io/flevanti/tepore-aarch64:0.5.0
    ```
 
 4. Read the one-time setup code from `docker logs tepore` (the line "setup code for the first sign-in"). Open
@@ -117,6 +118,17 @@ version. The Docker engine has its own database, separate from any add-on's.
    Keep the token out of shell history you share.
 6. Lost the token? `docker exec tepore engine token reset`, then `docker restart tepore`, and a new setup code is in
    the log.
+7. Read what happened with `engine timeline`: decisions and device readings as readable lines, in Home Assistant's
+   time zone. `--from` and `--to` take a time (RFC 3339) or how long ago (`2h`); a window is at most 7 days.
+
+   ```
+   docker exec -e TEPORE_API_TOKEN=<token> tepore engine timeline --from 2h
+   docker exec -e TEPORE_API_TOKEN=<token> tepore engine timeline --room <room id>
+   docker exec -e TEPORE_API_TOKEN=<token> tepore engine timeline --decision <id> --window 30m
+   ```
+
+   `--decision` explains one decision: its record, the decisions that share its trace, and the readings before it.
+   `--json` prints the raw result. The add-on has no timeline yet; its screen comes with a later version.
 
 The engine serves plain HTTP. Before it leaves your machine, put TLS in front of it with a reverse proxy, which must pass
 the original `Host` header (for nginx, `proxy_set_header Host $host;`).
